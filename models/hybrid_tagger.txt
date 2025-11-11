@@ -1,0 +1,8 @@
+{
+  "n": 10,
+  "boost_factor": 2.0,
+  "min_confidence": 0.3,
+  "vocab_size": 88641,
+  "ngram_path": "models/hybrid_tagger_ngram.txt",
+  "hmm_path": "models/hybrid_tagger_hmm.txt"
+}

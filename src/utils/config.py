@@ -1,0 +1,40 @@
+# Data Processing
+RANDOM_SEED = 42
+TRAIN_SIZE = 0.8
+VALIDATION_SIZE = 0.1
+TEST_SIZE = 0.1
+
+# Model Parameters
+NGRAM_ORDER = 3
+USE_START_END_TOKENS = True
+START_TOKEN = "<s>"
+END_TOKEN = "</s>"
+
+# N-gram Smoothing
+SMOOTHING_METHOD = "kneser_ney"
+KNESER_NEY_DISCOUNT = 0.75
+STUPID_BACKOFF_ALPHA = 0.4
+
+# HMM Parameters
+LANGUAGE_STATES = ["TE", "EN"]
+DEFAULT_STATE = "TE"
+HMM_SMOOTHING_ALPHA = 0.001
+
+# Prediction Settings
+TOP_K_PREDICTIONS = 3
+MIN_PROBABILITY_THRESHOLD = 0.001
+LANGUAGE_BOOST = {
+    "TE": 1.2,
+    "EN": 0.9
+}
+
+# File Paths
+MODEL_DIR = "models"
+DATA_DIR = "data"
+
+# Text Processing
+LOWERCASE = True
+REMOVE_PUNCTUATION = False
+REMOVE_NUMBERS = False
+MIN_WORD_LENGTH = 1
+MAX_WORD_LENGTH = 50
