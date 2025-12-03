@@ -1,6 +1,9 @@
 """
-LSTM Language Model - Pure Python Implementation (No Frameworks)
+LSTM Language Model - Pure Python Implementation (No Deep Learning Frameworks)
 Implements LSTM from scratch for Telugu-English code-mixed text prediction
+
+Note: This is an educational implementation using only NumPy for matrix operations.
+For production use, frameworks like PyTorch or TensorFlow are recommended.
 """
 
 import numpy as np
@@ -8,6 +11,8 @@ import pickle
 import os
 from collections import defaultdict, Counter
 import time
+from multiprocessing import Pool, cpu_count
+import multiprocessing as mp
 
 
 class LSTMCell:
@@ -400,20 +405,72 @@ class LSTMLanguageModel:
         
         return loss
     
-    def train(self, train_texts, epochs=5, batch_size=32, save_path=None):
+    def compute_batch_gradients(self, batch_sequences):
         """
-        Train the LSTM model
+        Compute gradients for a batch of sequences (for parallel processing)
+        
+        Args:
+            batch_sequences: List of (context_indices, target_idx) tuples
+            
+        Returns:
+            Total loss for batch and gradient updates
+        """
+        batch_loss = 0.0
+        
+        # Accumulate gradients
+        embedding_grads = {}
+        output_weight_grad = np.zeros_like(self.output_weights)
+        output_bias_grad = np.zeros_like(self.output_bias)
+        
+        for context_indices, target_idx in batch_sequences:
+            # Forward pass
+            outputs, caches = self.forward(context_indices)
+            
+            # Compute loss
+            loss = self.compute_loss(outputs, [target_idx])
+            batch_loss += loss
+            
+            # Compute gradients
+            for t, (probs, tgt_idx) in enumerate(zip(outputs, [target_idx])):
+                dlogits = probs.copy()
+                dlogits[tgt_idx] -= 1
+                dlogits = dlogits / len([target_idx])
+                
+                h_final = caches[t]['h_states'][-1]
+                
+                # Accumulate output layer gradients
+                output_weight_grad += np.dot(dlogits, h_final.T)
+                output_bias_grad += dlogits
+                
+                # Accumulate embedding gradients
+                word_idx = context_indices[t]
+                dh = np.dot(self.output_weights.T, dlogits)
+                
+                if word_idx not in embedding_grads:
+                    embedding_grads[word_idx] = np.zeros(self.embedding_dim)
+                embedding_grads[word_idx] += dh[:self.embedding_dim, 0]
+        
+        return batch_loss, embedding_grads, output_weight_grad, output_bias_grad
+    
+    def train(self, train_texts, epochs=5, batch_size=32, save_path=None, n_workers=None):
+        """
+        Train the LSTM model with parallel processing
         
         Args:
             train_texts: List of tokenized texts
             epochs: Number of training epochs
             batch_size: Batch size (sequences per batch)
             save_path: Path to save trained model
+            n_workers: Number of parallel workers (default: all CPU cores)
         """
+        if n_workers is None:
+            n_workers = cpu_count()
+        
         print(f"\nTraining LSTM Language Model...")
         print(f"Epochs: {epochs}, Context Length: {self.context_length}")
         print(f"Vocabulary Size: {self.vocab_size}, Hidden Size: {self.hidden_size}")
         print(f"Layers: {self.num_layers}, Learning Rate: {self.learning_rate}")
+        print(f"Using {n_workers} CPU cores for parallel processing")
         print("=" * 70)
         
         # Prepare training sequences
@@ -440,6 +497,20 @@ class LSTMLanguageModel:
         
         print(f"Total training sequences: {len(sequences)}")
         
+        # Set NumPy to use multiple threads for BLAS operations
+        if n_workers > 1:
+            os.environ['OMP_NUM_THREADS'] = str(n_workers)
+            os.environ['OPENBLAS_NUM_THREADS'] = str(n_workers)
+            os.environ['MKL_NUM_THREADS'] = str(n_workers)
+            os.environ['NUMEXPR_NUM_THREADS'] = str(n_workers)
+            os.environ['VECLIB_MAXIMUM_THREADS'] = str(n_workers)
+            print(f"Using {n_workers} workers for parallel processing")
+            pool = Pool(processes=n_workers, maxtasksperchild=1)
+            use_multiprocessing = True
+        else:
+            print("Using sequential training (more stable)")
+            use_multiprocessing = False
+        
         # Training loop
         for epoch in range(epochs):
             epoch_start = time.time()
@@ -448,28 +519,75 @@ class LSTMLanguageModel:
             total_loss = 0.0
             num_batches = 0
             
-            # Process in batches
-            for i in range(0, len(sequences), batch_size):
-                batch = sequences[i:i + batch_size]
+            if use_multiprocessing:
+                # Parallel processing mode
+                super_batch_size = batch_size * n_workers * 2
+            else:
+                # Sequential processing mode
+                super_batch_size = batch_size
+            
+            print(f"\nEpoch {epoch + 1}/{epochs} - Processing with batches of {super_batch_size} sequences")
+            
+            for i in range(0, len(sequences), super_batch_size):
+                super_batch = sequences[i:i + super_batch_size]
                 batch_loss = 0.0
                 
-                for context_indices, target_idx in batch:
-                    # Train on single sequence
-                    loss = self.train_on_batch(context_indices, [target_idx])
-                    batch_loss += loss
+                if use_multiprocessing:
+                    # Parallel processing
+                    chunk_size = max(1, len(super_batch) // n_workers)
+                    chunks = [super_batch[j:j + chunk_size] for j in range(0, len(super_batch), chunk_size)]
+                    
+                    results = pool.map(self.compute_batch_gradients, chunks)
+                    
+                    # Aggregate results
+                    all_embedding_grads = {}
+                    total_output_weight_grad = np.zeros_like(self.output_weights)
+                    total_output_bias_grad = np.zeros_like(self.output_bias)
+                    
+                    for b_loss, emb_grads, out_w_grad, out_b_grad in results:
+                        batch_loss += b_loss
+                        for word_idx, grad in emb_grads.items():
+                            if word_idx not in all_embedding_grads:
+                                all_embedding_grads[word_idx] = np.zeros(self.embedding_dim)
+                            all_embedding_grads[word_idx] += grad
+                        total_output_weight_grad += out_w_grad
+                        total_output_bias_grad += out_b_grad
+                    
+                    # Apply gradients
+                    self.output_weights -= self.learning_rate * total_output_weight_grad
+                    self.output_bias -= self.learning_rate * total_output_bias_grad
+                    for word_idx, grad in all_embedding_grads.items():
+                        self.embeddings[word_idx] -= self.learning_rate * grad
+                    
+                    num_batches += len(chunks)
+                else:
+                    # Sequential processing
+                    for context_indices, target_idx in super_batch:
+                        loss = self.train_on_batch(context_indices, [target_idx])
+                        batch_loss += loss
+                    num_batches += 1
                 
                 total_loss += batch_loss
-                num_batches += 1
                 
                 # Print progress
                 if num_batches % 100 == 0:
-                    avg_loss = total_loss / num_batches
-                    print(f"  Epoch {epoch + 1}, Batch {num_batches}, Avg Loss: {avg_loss:.4f}")
+                    avg_loss = total_loss / max(1, num_batches)
+                    sequences_processed = min(i + super_batch_size, len(sequences))
+                    pct_complete = (sequences_processed / len(sequences)) * 100
+                    total_batches = (len(sequences) + super_batch_size - 1) // super_batch_size
+                    current_batch = (i // super_batch_size) + 1
+                    print(f"  Epoch {epoch + 1}, Batch {current_batch}/{total_batches}, "
+                          f"Progress: {pct_complete:.1f}%, Avg Loss: {avg_loss:.4f}")
             
-            avg_epoch_loss = total_loss / num_batches
+            avg_epoch_loss = total_loss / max(1, num_batches)
             epoch_time = time.time() - epoch_start
             
             print(f"Epoch {epoch + 1}/{epochs} - Loss: {avg_epoch_loss:.4f} - Time: {epoch_time:.2f}s")
+        
+        # Close the pool after all epochs (if using multiprocessing)
+        if use_multiprocessing:
+            pool.close()
+            pool.join()
         
         self.trained = True
         

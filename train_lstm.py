@@ -73,9 +73,10 @@ def main():
     print("\nStarting training...")
     model.train(
         train_texts=train_texts,
-        epochs=5,               # Number of training epochs
+        epochs=2,               # Number of training epochs
         batch_size=32,          # Batch size
-        save_path=model_save_path
+        save_path=model_save_path,
+        n_workers=1             # Sequential training for stability
     )
     
     total_time = time.time() - start_time

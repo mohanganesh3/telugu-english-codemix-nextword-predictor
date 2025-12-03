@@ -6,6 +6,8 @@ __pycache__/
 .Python
 
 # Virtual environments
+.venv/
+.venv-1/
 env/
 venv/
 ENV/
@@ -18,9 +20,6 @@ venv.bak/
 *.swp
 *.swo
 *~
-
-# Model files (large)
-*.pkl
 
 # OS
 .DS_Store
@@ -35,3 +34,6 @@ venv.bak/
 
 # Logs
 *.log
+
+# Raw data (keep only processed)
+data/raw/

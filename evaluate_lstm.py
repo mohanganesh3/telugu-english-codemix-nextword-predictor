@@ -47,10 +47,15 @@ def evaluate_model(model, test_sequences, context_length=10):
     start_time = time.time()
     
     for seq_idx, sequence in enumerate(test_sequences):
-        # Make predictions for each position in sequence
-        for i in range(context_length, len(sequence)):
+        # Make predictions for each position in sequence (start from position 1)
+        for i in range(1, len(sequence)):
+            # Use up to context_length words as context
             context = sequence[max(0, i - context_length):i]
             target = sequence[i]
+            
+            # Skip if no context
+            if not context:
+                continue
             
             # Get predictions
             predictions = model.predict_next_word(context, top_k=5)

@@ -1,0 +1,17 @@
+======================================================================
+LSTM LANGUAGE MODEL EVALUATION RESULTS
+======================================================================
+
+Model: LSTM (2 layers, hidden_size=256)
+Context length: 10
+Vocabulary size: 10000
+Embedding dim: 128
+
+Total predictions:  0
+Top-1 correct:      0
+Top-5 correct:      0
+Top-1 Accuracy:     0.00%
+Top-5 Accuracy:     0.00%
+MRR:                0.0000
+Evaluation time:    0.00s
+======================================================================
